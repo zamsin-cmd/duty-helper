@@ -7,6 +7,7 @@
 import { createAiClient, readApiKey } from "@/lib/ai";
 import { apiError } from "@/lib/api-errors";
 import { GenerateError, generateSchedule } from "@/lib/generate";
+import { allowRequest, clientIdOf } from "@/lib/rate-limit";
 import { scheduleRequestSchema } from "@/lib/schemas";
 
 /**
@@ -16,11 +17,32 @@ import { scheduleRequestSchema } from "@/lib/schemas";
  */
 export const maxDuration = 75;
 
+/** 요청 본문의 최대 크기(바이트). 직원 100명·한 달 후보를 담아도 이보다 훨씬 작다 (SEC-002). */
+const MAX_BODY_BYTES = 200_000;
+
+/** 다른 사이트의 화면에서 몰래 보낸 요청인지 확인한다 (SEC-001). Origin이 있으면 우리 주소와 같아야 한다. */
+function isCrossSite(request: Request): boolean {
+  const origin = request.headers.get("origin");
+  if (!origin) return false; // Origin이 없는 요청(서버끼리 호출 등)은 막지 않는다. 횟수 제한이 대신 막는다.
+  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  try {
+    return new URL(origin).host !== host;
+  } catch {
+    return true;
+  }
+}
+
 export async function POST(request: Request): Promise<Response> {
-  // 1) 요청을 읽는다
+  if (isCrossSite(request)) return apiError("forbidden");
+
+  // 1) 요청을 읽는다 (너무 큰 본문은 거절한다)
   let body: unknown;
   try {
-    body = await request.json();
+    const declared = Number(request.headers.get("content-length") ?? 0);
+    if (declared > MAX_BODY_BYTES) return apiError("invalid_input", "요청이 너무 큽니다");
+    const text = await request.text();
+    if (text.length > MAX_BODY_BYTES) return apiError("invalid_input", "요청이 너무 큽니다");
+    body = JSON.parse(text);
   } catch {
     return apiError("invalid_input", "요청 내용이 올바른 JSON이 아닙니다");
   }
@@ -41,6 +63,11 @@ export async function POST(request: Request): Promise<Response> {
     return apiError("missing_api_key");
   }
 
+  // 3-1) 한 사람이 너무 자주 부르면 막는다 (AI 비용 보호, SEC-001)
+  if (!allowRequest(clientIdOf(request))) {
+    return apiError("too_many_requests");
+  }
+
   // 4) AI에게 당번표 초안을 받는다 (답 검사와 한 번 다시 요청은 generateSchedule 안에서 한다)
   try {
     const draft = await generateSchedule(parsed.data, createAiClient(apiKey));
@@ -48,7 +75,8 @@ export async function POST(request: Request): Promise<Response> {
   } catch (error) {
     // 서버 기록에는 오류 종류와 이유만 남긴다. 요청 내용(직원 정보)이나 키는 남기지 않는다.
     if (error instanceof GenerateError) {
-      console.error(`[schedule] ${error.code}: ${error.message}`);
+      // 메시지에는 AI가 쓴 이름이 섞일 수 있어 종류만 남긴다 (SEC-005)
+      console.error(`[schedule] ${error.code}`);
       return apiError(error.code);
     }
     console.error("[schedule] 예상하지 못한 오류:", error instanceof Error ? error.name : typeof error);

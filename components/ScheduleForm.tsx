@@ -23,6 +23,7 @@ import {
 } from "@/lib/client-errors";
 import { changeAssignment } from "@/lib/edit";
 import { buildScheduleInput, type InputSection, type RawInput } from "@/lib/input";
+import { applyEdits, collectEdits, type Edits } from "@/lib/readjust";
 import { TEAMS, type Assignment, type DateString, type ScheduleDraft, type ScheduleInput } from "@/lib/types";
 
 const EMPTY_INPUT: RawInput = {
@@ -35,6 +36,8 @@ const EMPTY_INPUT: RawInput = {
 };
 
 /** "당번표 만들기"의 진행 상태 */
+type DoneState = Extract<RunState, { status: "done" }>;
+
 type RunState =
   | { status: "idle" }
   | { status: "loading" }
@@ -61,6 +64,8 @@ export function ScheduleForm() {
   // "당번표 만들기"를 한 번이라도 눌렀는가. 누르기 전에는 입력을 시작한 칸의 안내만 보여 준다.
   const [attempted, setAttempted] = useState(false);
   const [run, setRun] = useState<RunState>({ status: "idle" });
+  // "나머지 다시 맞추기"가 실패했을 때 표 아래에 띄우는 안내
+  const [notice, setNotice] = useState<string | null>(null);
   // 입력을 고치거나 다시 눌렀을 때, 먼저 보낸 요청의 늦은 답이 화면을 덮어쓰지 않게 하는 번호표
   const runId = useRef(0);
   // 지금 기다리는 요청. 입력을 고치면 더는 필요 없으니 중단한다.
@@ -71,6 +76,7 @@ export function ScheduleForm() {
   const loading = run.status === "loading";
 
   const resetRun = () => {
+    setNotice(null);
     runId.current += 1;
     abortRef.current?.abort();
     setRun({ status: "idle" });
@@ -102,12 +108,13 @@ export function ScheduleForm() {
     result.issues.filter((issue) => issue.section === section && (attempted || started(section)));
 
   /** 서버에 당번표 초안을 요청한다. "당번표 만들기"와 "다시 시도"가 함께 쓴다. */
-  const runSchedule = async () => {
-    const input = result.input;
+  const runSchedule = async (rerun?: { edits: Edits; previous: DoneState }) => {
+    const input = rerun ? rerun.previous.input : result.input;
     if (!input) {
       resetRun();
       return;
     }
+    setNotice(null);
 
     const id = ++runId.current;
     abortRef.current?.abort();
@@ -124,26 +131,50 @@ export function ScheduleForm() {
       const response = await fetch("/api/schedule", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(buildScheduleRequest(input)),
+        body: JSON.stringify({
+          ...buildScheduleRequest(input),
+          // 다시 맞출 때: 직접 고친 날은 그대로 두라고 알린다 (작업 16)
+          ...(rerun && rerun.edits.fixed.length > 0 ? { fixedAssignments: rerun.edits.fixed } : {}),
+        }),
         signal: controller.signal,
       });
       const body: unknown = await response.json().catch(() => null);
       if (id !== runId.current) return; // 그 사이 입력을 고쳤거나 다시 눌렀다
 
       if (!response.ok) {
-        setRun({ status: "error", ...describeFailure(response.status, body) });
+        const failure = describeFailure(response.status, body);
+        // 다시 맞추기가 실패해도 지금까지 고친 표는 지우지 않고 안내만 띄운다
+        if (rerun) {
+          setRun(rerun.previous);
+          setNotice(failure.message);
+        } else setRun({ status: "error", ...failure });
         return;
       }
       const draft = body as ScheduleDraft | null;
       if (!draft || !Array.isArray(draft.assignments) || !Array.isArray(draft.descriptions)) {
-        setRun({ status: "error", message: UNEXPECTED_ERROR, retryable: true });
+        if (rerun) {
+          setRun(rerun.previous);
+          setNotice(UNEXPECTED_ERROR);
+        } else setRun({ status: "error", message: UNEXPECTED_ERROR, retryable: true });
         return;
       }
 
       // 표를 그릴 때 프로그램이 규칙대로 다시 검사한다 (PRD: AI는 초안, 프로그램이 확인)
-      setRun({ status: "done", input, draft, assignments: draft.assignments, confirmed: false });
+      setRun({
+        status: "done",
+        input,
+        draft,
+        assignments: rerun ? applyEdits(draft, rerun.edits) : draft.assignments,
+        confirmed: false,
+      });
     } catch (error) {
-      if (id === runId.current) setRun({ status: "error", ...describeThrown(error) });
+      if (id === runId.current) {
+        const failure = describeThrown(error);
+        if (rerun) {
+          setRun(rerun.previous);
+          setNotice(failure.message);
+        } else setRun({ status: "error", ...failure });
+      }
     } finally {
       clearTimeout(timer);
     }
@@ -224,7 +255,7 @@ export function ScheduleForm() {
           모두 지우기
         </button>
         <p className="self-center text-sm text-zinc-600 dark:text-zinc-400">
-          예시 데이터는 가상의 이름(김OO 등)입니다. 실제 직원 정보는 넣지 마세요.
+          예시 데이터는 가상의 이름(김OO 등)입니다. 실제 직원 정보는 넣지 마세요. 입력한 이름·팀·날짜는 당번표를 만들려고 OpenAI(미국)로 전송됩니다.
         </p>
       </div>
 
@@ -347,6 +378,11 @@ export function ScheduleForm() {
             onConfirm={() => setConfirmed(true)}
             onUnconfirm={() => setConfirmed(false)}
           />
+          <ReadjustBar
+            run={run}
+            onReadjust={(edits) => void runSchedule({ edits, previous: run })}
+            notice={notice}
+          />
           <EvidenceTable
             input={run.input}
             assignments={run.assignments}
@@ -355,5 +391,46 @@ export function ScheduleForm() {
         </>
       )}
     </form>
+  );
+}
+
+/**
+ * "나머지 다시 맞추기" (작업 16, nice). 지정자가 직접 고친 날은 그대로 두고, 나머지 날짜만 AI가 다시 짠다.
+ * 고친 날이 하나도 없거나 이미 확정했으면 버튼을 보여 주지 않는다.
+ */
+function ReadjustBar({
+  run,
+  onReadjust,
+  notice,
+}: {
+  run: DoneState;
+  onReadjust: (edits: Edits) => void;
+  notice: string | null;
+}) {
+  const edits = collectEdits(run.draft, run.assignments);
+  const count = edits.fixed.length + edits.manual.length;
+  if (run.confirmed || (count === 0 && !notice)) return null;
+  return (
+    <div className="flex flex-col items-start gap-2">
+      {count > 0 && (
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => onReadjust(edits)}
+            className="rounded-md border border-zinc-400 px-3 py-2 text-sm font-semibold hover:bg-zinc-100 dark:border-zinc-600 dark:hover:bg-zinc-800"
+          >
+            나머지 다시 맞추기
+          </button>
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            직접 고친 {count}일은 그대로 두고, 나머지 날짜만 AI가 다시 짭니다 (최대 1분).
+          </p>
+        </div>
+      )}
+      {notice && (
+        <p role="alert" className="text-sm font-semibold text-red-700 dark:text-red-400">
+          다시 맞추지 못했습니다. 지금까지 고친 표는 그대로 두었습니다. {notice}
+        </p>
+      )}
+    </div>
   );
 }

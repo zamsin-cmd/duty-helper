@@ -112,3 +112,23 @@ describe("다음 달에 그대로 붙여넣을 수 있다 (입력칸 4번과 같
     expect(parsed.items.find((d) => d.date === "2026-12-08")?.name).toBe("이OO");
   });
 });
+
+describe("엑셀 수식 주입 막기 (SEC-004)", () => {
+  it("=, +, -, @로 시작하는 이름·이유는 맨 앞에 작은따옴표를 붙여 글자로 취급되게 한다", () => {
+    const evil = ['=HYPERLINK("http://x","y")', "+1+1", "-2+3", "@SUM(A1)"];
+    const assignments: Assignment[] = evil.map((name, i) => ({
+      date: `2026-12-0${i + 1}`,
+      name,
+    }));
+    const lines = scheduleToText(sampleInput, assignments).split("\n");
+    for (const line of lines.slice(1)) {
+      const nameCell = line.split("\t")[1];
+      if (nameCell) expect(nameCell.startsWith("'")).toBe(true);
+    }
+    expect(lines.some((line) => line.split("\t")[1] === `'=HYPERLINK("http://x","y")`)).toBe(true);
+  });
+
+  it("보통 이름은 그대로다", () => {
+    expect(scheduleToText(sampleInput, [{ date: "2026-12-01", name: "김OO" }])).toContain("\t김OO\t");
+  });
+});

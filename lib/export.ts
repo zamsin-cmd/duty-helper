@@ -14,7 +14,9 @@ export const EXPORT_HEADER = ["날짜", "이름", "요일", "비고"].join("\t")
 
 /** 칸 안에 탭이나 줄바꿈이 있으면 엑셀에서 칸이 밀리므로 공백 하나로 바꾼다. */
 function clean(text: string): string {
-  return text.replace(/[\t\r\n]+/g, " ").trim();
+  // =, +, -, @로 시작하면 엑셀이 수식으로 실행할 수 있어서(SEC-004) 맨 앞에 '를 붙여 글자로 취급되게 한다.
+  const oneLine = text.replace(/[\t\r\n]+/g, " ").trim();
+  return /^[=+\-@]/.test(oneLine) ? `'${oneLine}` : oneLine;
 }
 
 /**

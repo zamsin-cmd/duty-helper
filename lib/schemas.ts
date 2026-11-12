@@ -29,11 +29,11 @@ export const scheduleRequestSchema = z
     /** 당번을 설 수 있는 날(평일에서 공휴일을 뺀 날) */
     weekdays: z.array(dateSchema).min(1, "근무일이 하나도 없습니다").max(31),
     /** 날짜별로 그날 배정할 수 있는 사람(후보 명단) */
-    candidates: z.record(dateSchema, z.array(nameSchema)),
+    candidates: z.record(dateSchema, z.array(nameSchema).max(100)),
     /** 후보가 없어 미리 "배정 불가"로 정한 날과 이유 */
-    unassignable: z.array(
-      z.object({ date: dateSchema, reason: z.string().min(1).max(100) }),
-    ),
+    unassignable: z
+      .array(z.object({ date: dateSchema, reason: z.string().min(1).max(100) }))
+      .max(31),
     employees: z
       .array(
         z.object({
@@ -45,9 +45,12 @@ export const scheduleRequestSchema = z
       .min(1, "직원이 한 명도 없습니다")
       .max(100),
     /** 총 횟수 차이를 맞출 직원(비교 제외 직원을 뺀 것) */
-    balanceTargets: z.array(nameSchema),
+    balanceTargets: z.array(nameSchema).max(100),
     /** 다시 맞추기(nice)에서 바꾸지 말아야 할 배정 */
-    fixedAssignments: z.array(z.object({ date: dateSchema, name: nameSchema })).optional(),
+    fixedAssignments: z
+      .array(z.object({ date: dateSchema, name: nameSchema }))
+      .max(31)
+      .optional(),
   })
   .superRefine((request, ctx) => {
     const names = new Set(request.employees.map((employee) => employee.name));
@@ -63,7 +66,13 @@ export const scheduleRequestSchema = z
         issue(["weekdays", index], `대상 월(${request.month}) 밖의 날짜입니다: ${date}`);
       }
     });
+    if (new Set(request.balanceTargets).size !== request.balanceTargets.length) {
+      issue(["balanceTargets"], "같은 이름이 여러 번 들어 있습니다");
+    }
     for (const [date, candidates] of Object.entries(request.candidates)) {
+      if (new Set(candidates).size !== candidates.length) {
+        issue(["candidates", date], `같은 이름이 여러 번 들어 있습니다: ${date}`);
+      }
       if (!weekdays.has(date)) issue(["candidates", date], `근무일이 아닌 날짜입니다: ${date}`);
       for (const name of candidates) {
         if (!names.has(name)) issue(["candidates", date], `명단에 없는 이름입니다: ${name}`);
