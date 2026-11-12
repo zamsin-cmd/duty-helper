@@ -9,7 +9,7 @@
 // 받은 당번표는 작업 12의 표(ScheduleTable)로 보여 준다. 직원별 근거 표는 작업 13에서 이어진다.
 // 실패했을 때의 안내와 "다시 시도"는 lib/client-errors.ts가 정한다 (작업 17).
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { IssueList, PasteField } from "@/components/PasteField";
 import { EvidenceTable } from "@/components/EvidenceTable";
 import { ScheduleTable } from "@/components/ScheduleTable";
@@ -22,6 +22,7 @@ import {
   describeThrown,
 } from "@/lib/client-errors";
 import { changeAssignment } from "@/lib/edit";
+import { loadingLabel } from "@/lib/elapsed";
 import { buildScheduleInput, type InputSection, type RawInput } from "@/lib/input";
 import { applyEdits, collectEdits, type Edits } from "@/lib/readjust";
 import { TEAMS, type Assignment, type DateString, type ScheduleDraft, type ScheduleInput } from "@/lib/types";
@@ -74,6 +75,18 @@ export function ScheduleForm() {
   const result = buildScheduleInput(raw);
   const errorCount = result.issues.filter((issue) => issue.level === "error").length;
   const loading = run.status === "loading";
+
+  // 기다리는 동안 1초마다 경과 시간을 올려 버튼에 보여 준다 (멈춘 것처럼 보이지 않게)
+  const [waited, setWaited] = useState(0);
+  useEffect(() => {
+    if (!loading) return;
+    const start = Date.now();
+    const timer = setInterval(() => setWaited(Math.floor((Date.now() - start) / 1000)), 1000);
+    return () => {
+      clearInterval(timer);
+      setWaited(0);
+    };
+  }, [loading]);
 
   const resetRun = () => {
     setNotice(null);
@@ -362,7 +375,7 @@ export function ScheduleForm() {
             aria-busy={loading}
             className="rounded-md bg-zinc-900 px-5 py-3 font-semibold text-white hover:bg-zinc-700 disabled:cursor-wait disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
           >
-            {loading ? "당번표를 만드는 중… (최대 1분)" : "당번표 만들기"}
+            {loading ? loadingLabel(waited) : "당번표 만들기"}
           </button>
         </div>
       </section>
