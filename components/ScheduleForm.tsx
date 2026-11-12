@@ -227,13 +227,17 @@ export function ScheduleForm() {
   };
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-8">
+    <form
+      onSubmit={handleSubmit}
+      noValidate
+      className="flex flex-col gap-8 rounded-xl border border-zinc-200 bg-card p-5 shadow-sm sm:p-8 dark:border-zinc-800"
+    >
       {/* ① 머리말 */}
-      <header className="flex flex-wrap items-end justify-between gap-4 border-b border-zinc-200 pb-4 dark:border-zinc-800">
+      <header className="flex flex-wrap items-end justify-between gap-4 border-b-2 border-brand pb-4">
         <div>
-          <h1 className="text-2xl font-bold">당번도우미</h1>
-          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-            명단과 일정을 엑셀에서 복사해 붙여넣으면 한 달 치 당번표를 만들어 줍니다.
+          <h2 className="border-l-4 border-brand pl-3 text-xl font-bold">당번표 입력</h2>
+          <p className="mt-1 pl-4 text-sm text-zinc-600 dark:text-zinc-400">
+            아래 칸에 엑셀에서 복사한 내용을 붙여넣고, 대상 월을 고르세요.
           </p>
         </div>
         <div className="flex flex-col gap-1">
@@ -373,7 +377,7 @@ export function ScheduleForm() {
             type="submit"
             disabled={loading}
             aria-busy={loading}
-            className="rounded-md bg-zinc-900 px-5 py-3 font-semibold text-white hover:bg-zinc-700 disabled:cursor-wait disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+            className="rounded-md bg-brand px-6 py-3 font-semibold text-white hover:opacity-90 disabled:cursor-wait disabled:opacity-60 dark:text-zinc-900"
           >
             {loading ? loadingLabel(waited) : "당번표 만들기"}
           </button>

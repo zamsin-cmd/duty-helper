@@ -55,7 +55,7 @@ export function ScheduleTable({
 
   return (
     <section aria-labelledby="schedule-heading" className="flex flex-col gap-3">
-      <h2 id="schedule-heading" className="text-xl font-bold">
+      <h2 id="schedule-heading" className="border-l-4 border-brand pl-3 text-xl font-bold">
         당번표 {confirmed ? "(확정)" : "초안"} ({year}년 {Number(month)}월)
       </h2>
 
@@ -83,7 +83,7 @@ export function ScheduleTable({
           <button
             type="button"
             onClick={onConfirm}
-            className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+            className="rounded-md bg-brand px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90 dark:text-zinc-900"
           >
             확정
           </button>
@@ -117,7 +117,7 @@ export function ScheduleTable({
       {/* ⑤ 당번표 */}
       <div className="overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-800">
         <table className="w-full min-w-[34rem] border-collapse text-left text-sm">
-          <thead className="bg-zinc-100 dark:bg-zinc-900">
+          <thead className="bg-brand-soft">
             <tr>
               <th scope="col" className="px-3 py-2 font-semibold">날짜</th>
               <th scope="col" className="px-3 py-2 font-semibold">요일</th>

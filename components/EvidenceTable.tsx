@@ -19,13 +19,13 @@ export function EvidenceTable({ input, assignments, descriptions }: EvidenceTabl
 
   return (
     <section aria-labelledby="evidence-heading" className="flex flex-col gap-3">
-      <h2 id="evidence-heading" className="text-xl font-bold">
+      <h2 id="evidence-heading" className="border-l-4 border-brand pl-3 text-xl font-bold">
         배정 근거
       </h2>
 
       <div className="overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-800">
         <table className="w-full min-w-[44rem] border-collapse text-left text-sm">
-          <thead className="bg-zinc-100 dark:bg-zinc-900">
+          <thead className="bg-brand-soft">
             <tr>
               <th scope="col" className="px-3 py-2 font-semibold">이름</th>
               <th scope="col" className="px-3 py-2 font-semibold">이번 달</th>
