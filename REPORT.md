@@ -77,7 +77,7 @@
 
 ## 4. 아직 확인하지 못한 것 (정직하게)
 
-1. **실제 AI로 한 번도 돌려 보지 못했다.** `.env`에 `ANTHROPIC_API_KEY`가 없다. 지시문이 규칙을 얼마나 잘 지키게 하는지, 60초 안에 끝나는지, 사용료가 얼마인지는 모른다.
+1. **실제 AI로 한 번도 돌려 보지 못했다.** `.env`의 `OPENAI_API_KEY`로 실제 호출은 아직 해 보지 않았다 (모델은 gpt-4o-mini로 고정). 지시문이 규칙을 얼마나 잘 지키게 하는지, 60초 안에 끝나는지, 사용료가 얼마인지는 모른다.
 2. **사람이 직접 쓰는 시간(SC-1)을 재지 못했다.**
 3. **진짜 클립보드·엑셀에 붙여넣기**는 가짜 클립보드로만 확인했다.
 4. **자동 재조정(작업 16, nice)은 만들지 않았다.**
@@ -87,7 +87,7 @@
 
 ## 5. 배포(Part 5) 전에 할 일
 
-1. **Vercel에 환경 변수 `ANTHROPIC_API_KEY`를 넣는다.** (코드·채팅·문서에는 붙여넣지 않는다.)
+1. **Vercel에 환경 변수 `OPENAI_API_KEY`를 넣는다.** (코드·채팅·문서에는 붙여넣지 않는다.)
 2. **서버 실행 시간 한도를 확인한다.** 서버 API는 `maxDuration = 75`(초)로 정했다 (AI 대기 60초 + 여유). Vercel 문서에 따르면 현재 방식(Fluid compute)에서는 Hobby 요금제도 최대 300초지만, 이전 방식이 켜진 프로젝트는 Hobby가 최대 60초로 제한돼 75초가 거절·제한될 수 있다. 프로젝트 설정(Settings → Functions)을 확인하고, 필요하면 `maxDuration`을 60 이하로 낮추면서 `lib/ai.ts`의 AI 대기 시간(`AI_TIMEOUT_MS`)도 함께 줄여야 한다 (서버 허용 시간이 AI 대기 시간보다 길어야 서버가 직접 오류로 답할 수 있다).
    - 참고: [Vercel Functions 한도](https://vercel.com/docs/functions/limitations), [Fluid compute 기본값·한도 변경 안내](https://vercel.com/changelog/higher-defaults-and-limits-for-vercel-functions-running-fluid-compute), [최대 실행 시간 설정](https://vercel.com/docs/functions/configuring-functions/duration.md)
 3. **키를 넣고 실제 호출을 확인한다.** 예시 데이터로 "당번표 만들기"를 눌러 위반 건수와 걸린 시간을 본다. (한 번 누를 때마다 AI 사용료가 든다. 예시 데이터는 가상이라 개인정보 걱정은 없다.)

@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sampleEmployees, sampleInput } from "../data/sample";
 import { sampleValidSchedule } from "../data/sample-schedule";
@@ -23,16 +23,24 @@ function fakeClient(...results: unknown[]) {
     if (result instanceof Error) parse.mockRejectedValueOnce(result);
     else parse.mockResolvedValueOnce(result);
   }
-  return { client: { messages: { parse } } as unknown as Anthropic, parse };
+  return { client: { chat: { completions: { create: parse } } } as unknown as OpenAI, parse };
 }
 
+/** 가짜 OpenAI 답. draft가 null이면 내용이 빈 답, "refusal"은 거절, "max_tokens"는 잘림(length) */
 const answer = (draft: ScheduleDraft | null, stop_reason = "end_turn") => ({
-  stop_reason,
-  parsed_output: draft,
+  choices: [
+    {
+      finish_reason: stop_reason === "max_tokens" ? "length" : "stop",
+      message: {
+        content: draft === null ? "" : JSON.stringify(draft),
+        refusal: stop_reason === "refusal" ? "거절합니다" : null,
+      },
+    },
+  ],
 });
 
 const apiError = (status: number) =>
-  Anthropic.APIError.generate(status, { error: { type: "x", message: "테스트" } }, "테스트", new Headers());
+  OpenAI.APIError.generate(status, { error: { type: "x", message: "테스트" } }, "테스트", new Headers());
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -94,26 +102,44 @@ describe("AI 호출 (generateSchedule)", () => {
     expect(parse).toHaveBeenCalledTimes(1);
   });
 
-  it("DESIGN §4.3의 설정으로 부른다: 모델·생각 깊이·지시문, 대체 모델 없음", async () => {
+  it("정해진 설정으로 부른다: gpt-4o-mini 고정, 지시문, 엄격한 JSON 형식, 대체 모델 없음", async () => {
     const { client, parse } = fakeClient(answer(goodDraft()));
     await generateSchedule(request, client);
     const params = parse.mock.calls[0][0];
-    expect(params.model).toBe("claude-opus-5-5");
-    expect(params.output_config.effort).toBe("high");
-    expect(params.output_config.format.type).toBe("json_schema");
-    expect(params.system).toBe(SYSTEM_PROMPT);
-    expect(params.messages).toHaveLength(1);
-    expect(params.messages[0].role).toBe("user");
-    expect(params.messages[0].content).toContain("2026-12");
-    // 합의한 대로: 대체 모델(fallbacks)을 쓰지 않고, 쓸 수 없는 값(temperature, 생각 끄기)도 보내지 않는다
-    for (const key of ["fallbacks", "betas", "temperature", "top_p", "thinking"]) {
+    expect(params.model).toBe("gpt-4o-mini");
+    expect(params.response_format.type).toBe("json_schema");
+    expect(params.response_format.json_schema.strict).toBe(true);
+    expect(params.messages).toHaveLength(2);
+    expect(params.messages[0]).toEqual({ role: "system", content: SYSTEM_PROMPT });
+    expect(params.messages[1].role).toBe("user");
+    expect(params.messages[1].content).toContain("2026-12");
+    for (const key of ["fallbacks", "betas", "thinking", "reasoning_effort"]) {
       expect(params).not.toHaveProperty(key);
     }
   });
 
-  it("답이 형식에 어긋나면(SDK가 오류를 던지면) 한 번 다시 요청해서 성공한다", async () => {
+  it("배정 불가 날의 이유가 null로 와도 읽는다 (엄격 모드는 모든 칸을 채워 보낸다)", async () => {
+    const withNulls = {
+      choices: [
+        {
+          finish_reason: "stop",
+          message: {
+            refusal: null,
+            content: JSON.stringify({
+              assignments: goodDraft().assignments.map((a) => ({ ...a, unassignableReason: null })),
+              descriptions: goodDraft().descriptions,
+            }),
+          },
+        },
+      ],
+    };
+    const { client } = fakeClient(withNulls);
+    expect(await generateSchedule(request, client)).toEqual(goodDraft());
+  });
+
+  it("답이 형식에 어긋나면(읽을 수 없는 글이면) 한 번 다시 요청해서 성공한다", async () => {
     const { client, parse } = fakeClient(
-      new Error("Failed to parse structured output: 설명이 50자를 넘습니다"),
+      { choices: [{ finish_reason: "stop", message: { refusal: null, content: "JSON이 아닌 글" } }] },
       answer(goodDraft()),
     );
     expect(await generateSchedule(request, client)).toEqual(goodDraft());
@@ -121,7 +147,8 @@ describe("AI 호출 (generateSchedule)", () => {
   });
 
   it("두 번 다 어긋나면 ai_bad_response(502)로 알린다", async () => {
-    const { client, parse } = fakeClient(new Error("틀림"), new Error("또 틀림"));
+    const bad = { choices: [{ finish_reason: "stop", message: { refusal: null, content: "{}" } }] };
+    const { client, parse } = fakeClient(bad, bad);
     const error = await generateSchedule(request, client).catch((e) => e);
     expect(error).toBeInstanceOf(GenerateError);
     expect(error.code).toBe("ai_bad_response");
@@ -155,7 +182,7 @@ describe("AI 호출 (generateSchedule)", () => {
 
 describe("통신·서버 문제는 다시 요청하지 않고 바로 알린다", () => {
   const cases: [string, Error, string][] = [
-    ["시간 초과", new Anthropic.APIConnectionTimeoutError(), "ai_busy"],
+    ["시간 초과", new OpenAI.APIConnectionTimeoutError(), "ai_busy"],
     ["너무 많은 요청(429)", apiError(429), "ai_busy"],
     ["AI 서버 오류(500)", apiError(500), "ai_busy"],
     ["과부하(529)", apiError(529), "ai_busy"],

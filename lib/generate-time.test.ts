@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import type OpenAI from "openai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sampleEmployees, sampleInput } from "../data/sample";
 import { sampleValidSchedule } from "../data/sample-schedule";
@@ -14,7 +14,18 @@ const goodDraft = (): ScheduleDraft => ({
   descriptions: sampleEmployees.map((e) => ({ name: e.name, text: "고르게 배정되었습니다" })),
 });
 
-const answer = (draft: ScheduleDraft | null) => ({ stop_reason: "end_turn", parsed_output: draft });
+/** 가짜 OpenAI 답. draft가 null이면 내용이 빈 답, "refusal"은 거절, "max_tokens"는 잘림(length) */
+const answer = (draft: ScheduleDraft | null, stop_reason = "end_turn") => ({
+  choices: [
+    {
+      finish_reason: stop_reason === "max_tokens" ? "length" : "stop",
+      message: {
+        content: draft === null ? "" : JSON.stringify(draft),
+        refusal: stop_reason === "refusal" ? "거절합니다" : null,
+      },
+    },
+  ],
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -31,7 +42,7 @@ function clockedClient(steps: { elapsedMs: number; result: unknown }[]) {
       return step.result;
     });
   }
-  return { client: { messages: { parse } } as unknown as Anthropic, parse };
+  return { client: { chat: { completions: { create: parse } } } as unknown as OpenAI, parse };
 }
 
 describe("시간 예산 (generateSchedule)", () => {

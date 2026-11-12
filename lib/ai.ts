@@ -5,13 +5,10 @@
 // 불러오면 안 된다. (NEXT_PUBLIC_으로 시작하지 않는 환경 변수는 화면 코드에서 비어 보이지만,
 // 실수를 막으려고 규칙으로도 정해 둔다.)
 
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 
-/** 당번표를 짜는 AI 모델 */
-export const AI_MODEL = "claude-opus-5-5";
-
-/** 생각 깊이. 여러 조건을 동시에 맞춰야 해서 기본값(medium)보다 한 단계 높인다. */
-export const AI_EFFORT = "high";
+/** 당번표를 짜는 AI 모델 (사용자 결정: ChatGPT gpt-4o-mini로 고정) */
+export const AI_MODEL = "gpt-4o-mini";
 
 /**
  * AI 답을 기다리는 전체 최대 시간(밀리초). 다시 요청하는 시간까지 모두 합친 한도다 (DESIGN §7 "최대 60초").
@@ -21,12 +18,12 @@ export const AI_EFFORT = "high";
 export const AI_TIMEOUT_MS = 60_000;
 
 /**
- * .env의 ANTHROPIC_API_KEY를 읽는다. 없거나 공백뿐이면 null.
+ * .env의 OPENAI_API_KEY를 읽는다. 없거나 공백뿐이면 null.
  * 요청이 올 때마다 읽는다 (서버를 켠 뒤에 .env를 고쳐도 다음 실행에서 반영되도록).
  * 이 값은 로그나 응답에 절대 내보내지 않는다.
  */
 export function readApiKey(): string | null {
-  const key = process.env.ANTHROPIC_API_KEY?.trim();
+  const key = process.env.OPENAI_API_KEY?.trim();
   return key ? key : null;
 }
 
@@ -36,6 +33,6 @@ export function readApiKey(): string | null {
  * 기다리는 시간이 약속(AI_TIMEOUT_MS)의 두 배가 되기 때문이다. 다시 요청은 lib/generate.ts가
  * 남은 시간을 보고 직접 하고, 통신 실패는 사용자가 "다시 시도"를 눌러 다시 한다.
  */
-export function createAiClient(apiKey: string): Anthropic {
-  return new Anthropic({ apiKey, timeout: AI_TIMEOUT_MS, maxRetries: 0 });
+export function createAiClient(apiKey: string): OpenAI {
+  return new OpenAI({ apiKey, timeout: AI_TIMEOUT_MS, maxRetries: 0 });
 }

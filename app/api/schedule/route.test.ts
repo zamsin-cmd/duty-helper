@@ -51,7 +51,7 @@ describe("POST /api/schedule — 입구", () => {
   });
 
   it("JSON이 아닌 요청은 400이고 AI를 부르지 않는다", async () => {
-    vi.stubEnv("ANTHROPIC_API_KEY", FAKE_KEY);
+    vi.stubEnv("OPENAI_API_KEY", FAKE_KEY);
     const response = await post("이건 JSON이 아닙니다");
     expect(response.status).toBe(400);
     const error = await readError(response);
@@ -61,7 +61,7 @@ describe("POST /api/schedule — 입구", () => {
   });
 
   it("형식이 틀린 요청은 400이고 어느 항목이 문제인지 알려 준다 (AI를 부르지 않는다)", async () => {
-    vi.stubEnv("ANTHROPIC_API_KEY", FAKE_KEY);
+    vi.stubEnv("OPENAI_API_KEY", FAKE_KEY);
     const response = await post(JSON.stringify({ ...validBody, month: "2026-13" }));
     expect(response.status).toBe(400);
     expect((await readError(response)).message).toContain("month");
@@ -74,12 +74,12 @@ describe("POST /api/schedule — 입구", () => {
   });
 
   it("입력이 틀리면 키가 있는지보다 먼저 입력 오류를 알린다", async () => {
-    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    vi.stubEnv("OPENAI_API_KEY", "");
     expect((await post(JSON.stringify({ ...validBody, month: "x" }))).status).toBe(400);
   });
 
   it("입력이 맞는데 AI 키가 없으면 500이고 AI를 부르지 않는다", async () => {
-    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    vi.stubEnv("OPENAI_API_KEY", "");
     const response = await post(JSON.stringify(validBody));
     expect(response.status).toBe(500);
     expect((await readError(response)).code).toBe("missing_api_key");
@@ -87,14 +87,14 @@ describe("POST /api/schedule — 입구", () => {
   });
 
   it("공백뿐인 키도 없는 것으로 본다", async () => {
-    vi.stubEnv("ANTHROPIC_API_KEY", "   ");
+    vi.stubEnv("OPENAI_API_KEY", "   ");
     expect((await post(JSON.stringify(validBody))).status).toBe(500);
   });
 });
 
 describe("POST /api/schedule — AI 호출", () => {
   it("입력과 키가 맞으면 AI 답을 200으로 돌려준다", async () => {
-    vi.stubEnv("ANTHROPIC_API_KEY", FAKE_KEY);
+    vi.stubEnv("OPENAI_API_KEY", FAKE_KEY);
     mockedGenerate.mockResolvedValueOnce(draft);
     const response = await post(JSON.stringify(validBody));
     expect(response.status).toBe(200);
@@ -105,7 +105,7 @@ describe("POST /api/schedule — AI 호출", () => {
   });
 
   it("AI가 바쁘면 503, 답을 읽지 못하면 502, 키가 틀리면 500으로 알린다", async () => {
-    vi.stubEnv("ANTHROPIC_API_KEY", FAKE_KEY);
+    vi.stubEnv("OPENAI_API_KEY", FAKE_KEY);
     const cases = [
       ["ai_busy", 503],
       ["ai_bad_response", 502],
@@ -120,7 +120,7 @@ describe("POST /api/schedule — AI 호출", () => {
   });
 
   it("예상하지 못한 오류도 502로 알리고 오류 내용을 응답에 담지 않는다", async () => {
-    vi.stubEnv("ANTHROPIC_API_KEY", FAKE_KEY);
+    vi.stubEnv("OPENAI_API_KEY", FAKE_KEY);
     mockedGenerate.mockRejectedValueOnce(new Error(`내부 사정 ${FAKE_KEY}`));
     const response = await post(JSON.stringify(validBody));
     expect(response.status).toBe(502);
@@ -130,7 +130,7 @@ describe("POST /api/schedule — AI 호출", () => {
   });
 
   it("서버 기록(console.error)에도 키와 직원 정보가 남지 않는다", async () => {
-    vi.stubEnv("ANTHROPIC_API_KEY", FAKE_KEY);
+    vi.stubEnv("OPENAI_API_KEY", FAKE_KEY);
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     mockedGenerate.mockRejectedValueOnce(new Error(`키 ${FAKE_KEY} 김OO`));
     await post(JSON.stringify(validBody));
@@ -142,7 +142,7 @@ describe("POST /api/schedule — AI 호출", () => {
   });
 
   it("어떤 응답에도 AI 키 값이 들어 있지 않다", async () => {
-    vi.stubEnv("ANTHROPIC_API_KEY", FAKE_KEY);
+    vi.stubEnv("OPENAI_API_KEY", FAKE_KEY);
     mockedGenerate.mockResolvedValueOnce(draft);
     const responses = [
       await post(JSON.stringify(validBody)),

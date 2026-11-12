@@ -1,7 +1,7 @@
 // Design Ref: §7 `POST /api/schedule` — 당번표 초안 만들기.
 // Plan SC: 작업 10 (입구·오류 처리) + 작업 11 (AI 당번표 생성).
 //
-// 이 파일은 서버에서만 실행된다. AI 키(ANTHROPIC_API_KEY)는 여기서만 읽고,
+// 이 파일은 서버에서만 실행된다. AI 키(OPENAI_API_KEY)는 여기서만 읽고,
 // 응답이나 로그에 내보내지 않는다.
 
 import { createAiClient, readApiKey } from "@/lib/ai";
