@@ -28,10 +28,11 @@ describe("AI 연결 설정", () => {
     expect(AI_TIMEOUT_MS).toBe(60_000);
   });
 
-  it("연결을 만들어도 AI를 부르지는 않고, 대기 60초·재시도 1회로 정해진다", () => {
+  it("연결을 만들어도 AI를 부르지는 않고, 대기 60초·자동 재시도 없음으로 정해진다", () => {
     const client = createAiClient("fake-key-for-test");
     expect(client).toBeInstanceOf(Anthropic);
     expect(client.timeout).toBe(60_000);
-    expect(client.maxRetries).toBe(1);
+    // SDK가 시간 초과를 다시 보내면 기다리는 시간이 두 배가 되므로 끈다 (재시도는 generate.ts가 시간을 보고 한다)
+    expect(client.maxRetries).toBe(0);
   });
 });

@@ -9,8 +9,12 @@ import { apiError } from "@/lib/api-errors";
 import { GenerateError, generateSchedule } from "@/lib/generate";
 import { scheduleRequestSchema } from "@/lib/schemas";
 
-/** AI 응답을 최대 60초 기다린다 (DESIGN §7). 배포 환경에서 이 시간만큼 실행을 허용한다. */
-export const maxDuration = 60;
+/**
+ * 서버가 이 요청을 처리하도록 허용하는 시간(초). AI는 전체 60초만 기다리므로(lib/ai.ts의 AI_TIMEOUT_MS)
+ * 그보다 여유 있게 잡아야 시간 초과 때에도 서버가 직접 "AI가 바쁩니다(503)"로 답할 수 있다.
+ * (같은 값이면 배포 환경이 서버보다 먼저 연결을 끊어, 화면이 정해진 오류 안내를 못 받는다.)
+ */
+export const maxDuration = 75;
 
 export async function POST(request: Request): Promise<Response> {
   // 1) 요청을 읽는다

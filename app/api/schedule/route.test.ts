@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AI_TIMEOUT_MS } from "@/lib/ai";
 import { GenerateError, generateSchedule } from "@/lib/generate";
 import type { ApiErrorBody } from "@/lib/api-errors";
 import { POST, maxDuration } from "./route";
@@ -44,8 +45,9 @@ const readError = async (response: Response) => ((await response.json()) as ApiE
 
 // 작업 10·11: 서버 API. 입력 오류 → 키 없음 → AI 호출 순서로 판단한다.
 describe("POST /api/schedule — 입구", () => {
-  it("실행 시간을 60초까지 허용한다", () => {
-    expect(maxDuration).toBe(60);
+  it("서버 실행 허용 시간(75초)이 AI 대기 한도(60초)보다 길어서, 시간 초과 때도 서버가 직접 답할 수 있다", () => {
+    expect(maxDuration).toBe(75);
+    expect(maxDuration * 1000).toBeGreaterThan(AI_TIMEOUT_MS);
   });
 
   it("JSON이 아닌 요청은 400이고 AI를 부르지 않는다", async () => {

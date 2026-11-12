@@ -6,7 +6,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { AI_EFFORT, AI_MODEL } from "./ai";
+import { AI_EFFORT, AI_MODEL, AI_TIMEOUT_MS } from "./ai";
 import type { ApiErrorCode } from "./api-errors";
 import { SYSTEM_PROMPT, buildUserMessage } from "./prompt";
 import { scheduleDraftSchema, type ScheduleRequest } from "./schemas";
@@ -28,6 +28,9 @@ const MAX_ATTEMPTS = 2;
 
 /** 답 하나를 만드는 데 쓸 수 있는 글자(토큰) 수. 생각하는 데 쓰는 양도 포함이라 넉넉히 잡는다. */
 const MAX_TOKENS = 16_000;
+
+/** 다시 요청하려면 남아 있어야 하는 최소 시간(밀리초). 이보다 적으면 다시 요청하지 않고 "늦다"고 알린다. */
+const MIN_RETRY_MS = 10_000;
 
 /**
  * AI 답이 요청과 맞는 모양인지 확인한다. 문제가 없으면 빈 목록.
@@ -82,16 +85,25 @@ function toGenerateError(error: unknown): GenerateError {
   return new GenerateError("ai_bad_response", "AI 호출이 거절되었습니다");
 }
 
-async function attemptOnce(request: ScheduleRequest, client: Anthropic): Promise<Attempt> {
+/** timeoutMs: 이번 시도에서 기다릴 수 있는 시간(전체 한도에서 이미 쓴 시간을 뺀 것) */
+async function attemptOnce(
+  request: ScheduleRequest,
+  client: Anthropic,
+  timeoutMs: number,
+): Promise<Attempt> {
   let response;
   try {
-    response = await client.messages.parse({
-      model: AI_MODEL,
-      max_tokens: MAX_TOKENS,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: buildUserMessage(request) }],
-      output_config: { effort: AI_EFFORT, format: zodOutputFormat(scheduleDraftSchema) },
-    });
+    response = await client.messages.parse(
+      {
+        model: AI_MODEL,
+        max_tokens: MAX_TOKENS,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: "user", content: buildUserMessage(request) }],
+        output_config: { effort: AI_EFFORT, format: zodOutputFormat(scheduleDraftSchema) },
+      },
+      // 남은 시간만큼만 기다리고, SDK가 알아서 다시 보내지 않게 한다 (시간 약속을 지키기 위해)
+      { timeout: timeoutMs, maxRetries: 0 },
+    );
   } catch (error) {
     // 통신·서버 문제(APIError)는 바로 실패로 알리고, 그 밖의 오류는 "답 형식이 틀림"으로 본다.
     // (SDK는 답이 우리 형식에 어긋나면 APIError가 아닌 오류를 던진다.)
@@ -116,14 +128,22 @@ async function attemptOnce(request: ScheduleRequest, client: Anthropic): Promise
  * - 통신·서버 문제(시간 초과, 바쁨, 키 오류)는 바로 GenerateError로 알린다.
  * - 답이 형식에 어긋나면(설명이 50자 초과, 날짜 빠짐 등) AI에 한 번 다시 요청한다.
  *   그래도 틀리면 GenerateError("ai_bad_response")다.
+ * - 기다리는 시간은 다시 요청하는 것까지 합쳐 전체 AI_TIMEOUT_MS(60초) 안에 끝난다.
+ *   첫 시도가 오래 걸려 다시 요청할 시간(MIN_RETRY_MS)이 남지 않으면, 다시 요청하지 않고
+ *   GenerateError("ai_busy")로 알린다.
  */
 export async function generateSchedule(
   request: ScheduleRequest,
   client: Anthropic,
 ): Promise<ScheduleDraft> {
+  const deadline = Date.now() + AI_TIMEOUT_MS;
   let lastReason = "";
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const result = await attemptOnce(request, client);
+    const remaining = deadline - Date.now();
+    if (attempt > 1 && remaining < MIN_RETRY_MS) {
+      throw new GenerateError("ai_busy", `다시 요청할 시간이 남지 않았습니다 (${lastReason})`);
+    }
+    const result = await attemptOnce(request, client, remaining);
     if (result.ok) return result.draft;
     lastReason = result.reason;
   }

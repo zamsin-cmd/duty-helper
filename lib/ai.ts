@@ -13,7 +13,11 @@ export const AI_MODEL = "claude-opus-5-5";
 /** 생각 깊이. 여러 조건을 동시에 맞춰야 해서 기본값(medium)보다 한 단계 높인다. */
 export const AI_EFFORT = "high";
 
-/** AI 응답을 기다리는 최대 시간(밀리초). 넘으면 "AI가 바쁩니다(503)"로 안내한다. */
+/**
+ * AI 답을 기다리는 전체 최대 시간(밀리초). 다시 요청하는 시간까지 모두 합친 한도다 (DESIGN §7 "최대 60초").
+ * 넘으면 "AI가 바쁩니다(503)"로 안내한다. 서버가 이 시간 안에 반드시 답하도록
+ * 서버 실행 허용 시간(app/api/schedule/route.ts의 maxDuration)은 이보다 길게 잡는다.
+ */
 export const AI_TIMEOUT_MS = 60_000;
 
 /**
@@ -28,8 +32,10 @@ export function readApiKey(): string | null {
 
 /**
  * AI 연결을 만든다. 만들기만 하고 부르지는 않는다 (비용 없음).
- * 같은 요청을 다시 보내는 횟수는 1번으로 제한해, 실패해도 기다리는 시간이 늘어나지 않게 한다.
+ * SDK의 자동 재시도는 끈다(maxRetries: 0). 시간 초과도 재시도하는 SDK 기본 동작이 겹치면
+ * 기다리는 시간이 약속(AI_TIMEOUT_MS)의 두 배가 되기 때문이다. 다시 요청은 lib/generate.ts가
+ * 남은 시간을 보고 직접 하고, 통신 실패는 사용자가 "다시 시도"를 눌러 다시 한다.
  */
 export function createAiClient(apiKey: string): Anthropic {
-  return new Anthropic({ apiKey, timeout: AI_TIMEOUT_MS, maxRetries: 1 });
+  return new Anthropic({ apiKey, timeout: AI_TIMEOUT_MS, maxRetries: 0 });
 }

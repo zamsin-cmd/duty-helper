@@ -7,6 +7,7 @@
 // 그 결과를 보여 주고, 입력이 맞으면 서버(/api/schedule)에 당번표 초안을 요청한다.
 // AI 키는 서버만 알고, 이 화면 코드에는 없다.
 // 받은 당번표는 작업 12의 표(ScheduleTable)로 보여 준다. 직원별 근거 표는 작업 13에서 이어진다.
+// 실패했을 때의 안내와 "다시 시도"는 lib/client-errors.ts가 정한다 (작업 17).
 
 import { useRef, useState } from "react";
 import { IssueList, PasteField } from "@/components/PasteField";
@@ -14,6 +15,12 @@ import { EvidenceTable } from "@/components/EvidenceTable";
 import { ScheduleTable } from "@/components/ScheduleTable";
 import { sampleRawInput } from "@/data/sample-text";
 import { buildScheduleRequest } from "@/lib/candidates";
+import {
+  CLIENT_TIMEOUT_MS,
+  UNEXPECTED_ERROR,
+  describeFailure,
+  describeThrown,
+} from "@/lib/client-errors";
 import { changeAssignment } from "@/lib/edit";
 import { buildScheduleInput, type InputSection, type RawInput } from "@/lib/input";
 import { TEAMS, type Assignment, type DateString, type ScheduleDraft, type ScheduleInput } from "@/lib/types";
@@ -26,8 +33,6 @@ const EMPTY_INPUT: RawInput = {
   previousText: "",
   firstTuesdayTeam: "A",
 };
-
-const NETWORK_ERROR = "서버와 통신하지 못했습니다. 잠시 뒤에 다시 시도해 주세요.";
 
 /** "당번표 만들기"의 진행 상태 */
 type RunState =
@@ -44,7 +49,12 @@ type RunState =
       /** "확정"을 눌렀는가 */
       confirmed: boolean;
     }
-  | { status: "error"; message: string };
+  | {
+      status: "error";
+      message: string;
+      /** "다시 시도" 버튼을 보여 줄까 (기다리면 나아질 수 있는 실패만) */
+      retryable: boolean;
+    };
 
 export function ScheduleForm() {
   const [raw, setRaw] = useState<RawInput>(EMPTY_INPUT);
@@ -53,6 +63,8 @@ export function ScheduleForm() {
   const [run, setRun] = useState<RunState>({ status: "idle" });
   // 입력을 고치거나 다시 눌렀을 때, 먼저 보낸 요청의 늦은 답이 화면을 덮어쓰지 않게 하는 번호표
   const runId = useRef(0);
+  // 지금 기다리는 요청. 입력을 고치면 더는 필요 없으니 중단한다.
+  const abortRef = useRef<AbortController | null>(null);
 
   const result = buildScheduleInput(raw);
   const errorCount = result.issues.filter((issue) => issue.level === "error").length;
@@ -60,6 +72,7 @@ export function ScheduleForm() {
 
   const resetRun = () => {
     runId.current += 1;
+    abortRef.current?.abort();
     setRun({ status: "idle" });
   };
 
@@ -88,10 +101,8 @@ export function ScheduleForm() {
   const issuesOf = (section: InputSection) =>
     result.issues.filter((issue) => issue.section === section && (attempted || started(section)));
 
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setAttempted(true);
-
+  /** 서버에 당번표 초안을 요청한다. "당번표 만들기"와 "다시 시도"가 함께 쓴다. */
+  const runSchedule = async () => {
     const input = result.input;
     if (!input) {
       resetRun();
@@ -99,32 +110,49 @@ export function ScheduleForm() {
     }
 
     const id = ++runId.current;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    // 서버가 끝내 답하지 않아도 "만드는 중…"에서 영영 못 벗어나지 않게, 정해진 시간이 지나면 포기한다
+    const timer = setTimeout(
+      () => controller.abort(new DOMException("서버가 시간 안에 답하지 않았습니다", "TimeoutError")),
+      CLIENT_TIMEOUT_MS,
+    );
+
     setRun({ status: "loading" });
     try {
       const response = await fetch("/api/schedule", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(buildScheduleRequest(input)),
+        signal: controller.signal,
       });
       const body: unknown = await response.json().catch(() => null);
       if (id !== runId.current) return; // 그 사이 입력을 고쳤거나 다시 눌렀다
 
       if (!response.ok) {
-        const message = (body as { error?: { message?: unknown } } | null)?.error?.message;
-        setRun({ status: "error", message: typeof message === "string" ? message : NETWORK_ERROR });
+        setRun({ status: "error", ...describeFailure(response.status, body) });
         return;
       }
       const draft = body as ScheduleDraft | null;
       if (!draft || !Array.isArray(draft.assignments) || !Array.isArray(draft.descriptions)) {
-        setRun({ status: "error", message: NETWORK_ERROR });
+        setRun({ status: "error", message: UNEXPECTED_ERROR, retryable: true });
         return;
       }
 
       // 표를 그릴 때 프로그램이 규칙대로 다시 검사한다 (PRD: AI는 초안, 프로그램이 확인)
       setRun({ status: "done", input, draft, assignments: draft.assignments, confirmed: false });
-    } catch {
-      if (id === runId.current) setRun({ status: "error", message: NETWORK_ERROR });
+    } catch (error) {
+      if (id === runId.current) setRun({ status: "error", ...describeThrown(error) });
+    } finally {
+      clearTimeout(timer);
     }
+  };
+
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setAttempted(true);
+    void runSchedule();
   };
 
   /** 당번 지정자가 날짜 하나의 당번자를 바꿨다. 확정된 뒤에는 바꿀 수 없다. */
@@ -279,12 +307,21 @@ export function ScheduleForm() {
         )}
 
         {run.status === "error" && (
-          <p
+          <div
             role="alert"
-            className="rounded-md border border-red-500 bg-red-50 p-4 font-semibold text-red-800 dark:bg-red-950 dark:text-red-200"
+            className="flex flex-col items-start gap-3 rounded-md border border-red-500 bg-red-50 p-4 text-red-800 dark:bg-red-950 dark:text-red-200"
           >
-            {run.message}
-          </p>
+            <p className="font-semibold">{run.message}</p>
+            {run.retryable && (
+              <button
+                type="button"
+                onClick={() => void runSchedule()}
+                className="rounded-md border border-red-700 px-3 py-1.5 text-sm font-semibold hover:bg-red-100 dark:border-red-300 dark:hover:bg-red-900"
+              >
+                다시 시도
+              </button>
+            )}
+          </div>
         )}
 
         <div>
