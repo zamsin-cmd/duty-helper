@@ -1,36 +1,47 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 당번도우미
 
-## Getting Started
+당번 지정자가 **직원 명단·휴가 일정·공휴일**을 엑셀에서 복사해 붙여넣으면, AI 기능 **"당번지정"**이 규칙에 맞는 **한 달 치 당번표 초안**과 배정 근거를 만들어 주는 웹 앱입니다.
+AI는 초안만 만들고, **규칙 검사와 숫자 계산은 프로그램이 직접** 합니다. AI가 규칙을 어기면 그 칸이 빨간색으로 드러납니다.
 
-First, run the development server:
+- 기획서: [PRD.md](PRD.md) · 개발 계획: [PLAN.md](PLAN.md) · 설계: [DESIGN.md](DESIGN.md) · 점검 결과: [CHECK.md](CHECK.md) · 성공 기준 보고: [REPORT.md](REPORT.md)
 
+## 이런 문제를 풉니다
+매달 당번표를 엑셀로 손수 짜면 반나절이 걸리고, 특정 직원에게 당번이 몰리거나 휴가와 겹치는 실수가 생깁니다.
+이 앱은 입력을 붙여넣으면 규칙에 맞는 초안과 "왜 이렇게 배정했는지"를 숫자로 보여 줍니다.
+
+## 주요 기능
+1. **당번표 자동 생성 (must ①)** — 평일만, 휴가·출장일 제외, 근무 기간 안, 하루 1명, 화요일은 3개 팀이 돌아가며, 유연근무자는 금요일 제외, 이틀 연속 금지, 직원 간 총 횟수 차이 최대 2회.
+2. **배정 근거 표 (must ②)** — 직원별 이번 달 횟수·화요일 순번·지난달 횟수·비교 제외 사유는 프로그램이 직접 세고, 한 줄 설명만 AI가 씁니다.
+3. 규칙 위반 칸 빨간색 표시, 배정 불가 날짜 회색 표시
+4. 날짜별 당번자 직접 변경, 확정(위반이 남아 있으면 경고만)
+5. 표 복사(엑셀 붙여넣기용), "나머지 다시 맞추기"(직접 고친 날은 고정하고 나머지만 AI가 다시 짬)
+
+## 기술
+- **Next.js 16**(App Router) · TypeScript · Tailwind CSS
+- AI: **OpenAI `gpt-4o-mini`** (서버에서만 호출, 모델 고정)
+- 입력 검사: Zod · 시험: Vitest (현재 350개 시험)
+
+## 직접 실행해 보기
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+# .env 파일을 만들고 OPENAI_API_KEY=본인 키 를 넣는다 (.env는 git에 올라가지 않는다)
+npm run dev        # http://localhost:3000
+npm test           # 시험
+npm run build      # 배포용 빌드
 ```
+화면의 **"예시 데이터 불러오기"** 버튼으로 가상 데이터를 바로 넣을 수 있고, 더 큰 규모의 가상 데이터는 [TESTDATA.md](TESTDATA.md)에 있습니다.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 알아 둘 점 (정직하게)
+- **AI가 규칙을 어길 수 있습니다.** 가상 데이터 실측으로 12~25명 규모는 위반 0건이었지만, 30명 규모에서는 `gpt-4o-mini`가 위반 8건을 냈습니다. 위반은 프로그램이 모두 찾아 빨간색으로 보여 주고, 지정자가 고치거나 "나머지 다시 맞추기"를 씁니다. 자세한 내용은 [CHECK.md](CHECK.md).
+- **개인정보:** 입력한 이름·팀·날짜는 당번표를 만들려고 **OpenAI(미국)로 전송**됩니다. 이 서비스는 입력을 저장하지 않으며(DB 없음, 새로고침하면 사라짐), **실제 직원 정보 대신 가명·이니셜만** 넣으세요.
+- **로그인이 없습니다.** 서버에서 다른 사이트 요청 차단과 한 사람당 1분 5회 제한을 두었지만 완전한 차단은 아닙니다. 공개 주소에서 AI를 부르면 운영자의 OpenAI 사용료가 듭니다.
+- 비범위: 로그인, DB 저장, 알림, 외부 시스템 연동, 엑셀 파일 업로드·다운로드 ([PRD.md](PRD.md) 6번).
+- 사람이 직접 쓰는 시간(30분 이내 목표)은 아직 측정하지 못했습니다.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 폴더 구조
+| 경로 | 내용 |
+|---|---|
+| `app/` | 화면(`page.tsx`)과 서버 API(`api/schedule`) |
+| `components/` | 입력 화면, 당번표, 근거 표 |
+| `lib/` | 달력 계산, 규칙 검사기, 입력 해석, AI 호출 등 (화면과 분리해 따로 시험) |
+| `data/` | 가상 예시 데이터와 시험용 가짜 AI |
